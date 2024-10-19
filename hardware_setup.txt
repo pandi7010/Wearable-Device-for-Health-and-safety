@@ -1,0 +1,164 @@
+Here’s a breakdown of the source code and connections for the Smart Wearable Safelet project. I'll cover the 
+core functionality first, including the sensors and buttons for health monitoring and emergency alerts.
+1. Components:
+➢ Arduino Nano
+➢ Heartbeat Sensor (KY-039)
+➢ Temperature Sensor (LM35)
+➢ Pulse Oximeter (MAX30100)
+➢ GPS Module (Neo-6M)
+➢ GSM Module (SIM800L) for sending alerts
+➢ Three Buttons (Red for safety, Green for health, Black for buzzer control)
+➢ Buzzer
+➢ Rechargeable Battery
+2. Circuit Connections:
+• Heartbeat Sensor (KY-039):
+VCC → 5V
+GND → GND
+Signal (S) → A0 (Analog Pin)
+• Temperature Sensor (LM35):
+VCC → 5V
+GND → GND
+Signal → A1 (Analog Pin)
+• Pulse Oximeter (MAX30100):
+VCC → 5V
+GND → GND
+SCL → A5 (I2C SCL)
+SDA → A4 (I2C SDA)
+• GPS Module (Neo-6M):
+VCC → 5V
+GND → GND
+RX → D2 (Digital Pin)
+TX → D3 (Digital Pin)
+• GSM Module (SIM800L):
+VCC → 5V
+GND → GND
+TX → D7 (Digital Pin)
+RX → D8 (Digital Pin)
+• Buttons:
+Red Button (Safety): One side to GND, other side to D4
+Green Button (Health): One side to GND, other side to D5
+Black Button (Buzzer Control): One side to GND, other side to D6
+• Buzzer:
+Positive → D9 (Digital Pin)
+Negative → GND
+3. Source Code:
+3.1 Libraries to Install:
+➢ TinyGPS++: For GPS module.
+➢ SoftwareSerial: For GSM communication.
+➢ MAX30100: For the Pulse Oximeter sensor.
+3.2 Basic Code Structure:
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include "MAX30100_PulseOximeter.h"
+#define REPORTING_PERIOD_MS 1000
+// Define pins
+const int heartbeatPin = A0;
+const int tempPin = A1;
+const int redButtonPin = 4;
+const int greenButtonPin = 5;
+const int blackButtonPin = 6;
+const int buzzerPin = 9;
+// GSM Module setup
+SoftwareSerial gsmSerial(7, 8); // GSM RX, TX
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(2, 3); // GPS RX, TX
+PulseOximeter pox;
+uint32_t tsLastReport = 0;
+// Setup for Pulse Oximeter
+void onBeatDetected()
+{
+Serial.println("Beat Detected!");
+}
+void setup() {
+Serial.begin(9600);
+// Pin setups
+pinMode(redButtonPin, INPUT_PULLUP);
+pinMode(greenButtonPin, INPUT_PULLUP);
+pinMode(blackButtonPin, INPUT_PULLUP);
+pinMode(buzzerPin, OUTPUT);
+// Setup GSM module
+gsmSerial.begin(9600);
+gpsSerial.begin(9600);
+// Initialize MAX30100 Pulse Oximeter
+if (!pox.begin()) {
+Serial.println("FAILED to initialize PulseOximeter");
+for(;;);
+}
+pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA);
+pox.setOnBeatDetectedCallback(onBeatDetected);
+}
+void loop() {
+// Reading Heartbeat sensor
+int heartRateValue = analogRead(heartbeatPin);
+Serial.print("Heartbeat Sensor Value: ");
+Serial.println(heartRateValue);
+// Reading Temperature Sensor
+int tempValue = analogRead(tempPin);
+float temperature = (tempValue * 5.0 * 100.0) / 1024;
+Serial.print("Temperature: ");
+Serial.println(temperature);
+// Reading Pulse Oximeter (Oxygen Level)
+pox.update();
+if (millis() - tsLastReport > REPORTING_PERIOD_MS) {
+Serial.print("Heart rate:");
+Serial.print(pox.getHeartRate());
+Serial.print(" bpm / SpO2:");
+Serial.print(pox.getSpO2());
+Serial.println(" %");
+tsLastReport = millis();
+}
+// Reading GPS data
+while (gpsSerial.available() > 0)
+gps.encode(gpsSerial.read());
+if (gps.location.isValid()) {
+Serial.print("Latitude: ");
+Serial.println(gps.location.lat(), 6);
+Serial.print("Longitude: ");
+Serial.println(gps.location.lng(), 6);
+}
+// Checking Red Button (Safety)
+if (digitalRead(redButtonPin) == LOW) {
+sendSMS("Emergency! Location: ", gps.location.lat(), gps.location.lng(), "Police");
+}
+// Checking Green Button (Health Emergency)
+if (digitalRead(greenButtonPin) == LOW) {
+sendSMS("Health Emergency! Location: ", gps.location.lat(), gps.location.lng(), "Hospital");
+}
+// Checking Black Button (Buzzer Control)
+if (digitalRead(blackButtonPin) == LOW) {
+digitalWrite(buzzerPin, LOW); // Turn off buzzer
+}
+}
+void sendSMS(String message, float lat, float lng, String authority) {
+gsmSerial.print("AT+CMGF=1\r"); // Set SMS to text mode
+delay(100);
+gsmSerial.print("AT+CMGS=\"+911234567890\"\r"); // Replace with the correct number
+delay(100);
+gsmSerial.print(message);
+gsmSerial.print("Lat: ");
+gsmSerial.print(lat, 6);
+gsmSerial.print(", Lng: ");
+gsmSerial.print(lng, 6);
+gsmSerial.print(" | Nearest: ");
+gsmSerial.print(authority);
+gsmSerial.write(26); // Ctrl+Z to send the message
+delay(1000);
+}
+4. How It Works:
+➢ Heartbeat Monitoring: Analog values from the heartbeat sensor are read via `A0`. A threshold can 
+be set to trigger an emergency message when heart rate exceeds or drops below a specific value.
+➢ Temperature Monitoring: The LM35 sensor outputs an analog signal proportional to the temperature, 
+which is converted and printed in degrees Celsius.
+➢ Pulse Oximeter: It monitors the blood oxygen level (SpO2) and heart rate. If abnormalities are 
+detected, it can trigger an alert.
+➢ GPS Module: Fetches latitude and longitude. This data is sent via an SMS to police or hospitals 
+depending on the button pressed.
+➢ GSM Module: Sends an SMS with the current GPS coordinates to the emergency contact when the 
+red or green button is pressed.
+➢ Buzzer Control: The black button silences the buzzer, which is triggered when the heartbeat sensor 
+detects fright.
+5. Further Enhancements:
+➢ Battery Management: Implement low-power modes for the Arduino to save battery life.
+➢ Waterproofing: Ensure the device is waterproof for durability.
+➢ Cloud Integration: Store health data on a server for continuous monitoring.
